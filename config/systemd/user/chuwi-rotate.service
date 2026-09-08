@@ -1,0 +1,13 @@
+[Unit]
+Description=Chuwi MiniBook X Auto-Rotation Daemon
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/chuwi-minibook-x-rotate
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

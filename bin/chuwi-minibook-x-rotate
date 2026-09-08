@@ -1,0 +1,140 @@
+#!/usr/bin/env python3
+"""
+Auto-rotation daemon for Chuwi MiniBook X (Intel N100) running Omarchy / Hyprland.
+Listens to the onboard mxc4005 accelerometer via iio-sensor-proxy (D-Bus)
+and updates both display and touchscreen orientation in real time.
+"""
+
+import subprocess
+import sys
+from gi.repository import GLib, Gio
+
+# Orientation mappings for Chuwi MiniBook X (native portrait 1200x1920 DSI-1 panel):
+# - "right-up": standard laptop orientation (keyboard down) -> transform 3 (270 deg)
+# - "normal": standing portrait (power button top) -> transform 0 (0 deg)
+# - "left-up": inverted landscape / tent mode -> transform 1 (90 deg)
+# - "bottom-up": inverted portrait -> transform 2 (180 deg)
+ORIENTATION_TO_TRANSFORM = {
+    "right-up": 3,
+    "normal": 0,
+    "left-up": 1,
+    "bottom-up": 2,
+}
+
+current_transform = None
+
+def apply_transform(transform):
+    global current_transform
+    if transform is None or transform == current_transform:
+        return
+    current_transform = transform
+
+    # 1. Update Monitor DSI-1 (Omarchy Lua evaluation)
+    subprocess.run([
+        "hyprctl", "eval",
+        f'hl.monitor({{ output = "DSI-1", transform = {transform}, scale = 1 }})'
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    # Fallback to standard Hyprland keyword command
+    subprocess.run([
+        "hyprctl", "keyword", "monitor",
+        f"DSI-1,preferred,auto,1,transform,{transform}"
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    # 2. Update Touchscreen device
+    subprocess.run([
+        "hyprctl", "eval",
+        f'hl.device({{ name = "goodix-capacitive-touchscreen-1", output = "DSI-1", transform = {transform} }})'
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    subprocess.run([
+        "hyprctl", "eval",
+        f'hl.config({{ input = {{ touchdevice = {{ output = "DSI-1", transform = {transform} }} }} }})'
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    # Fallback keyword commands for standard Hyprland
+    subprocess.run([
+        "hyprctl", "keyword",
+        "device[goodix-capacitive-touchscreen-1]:transform", str(transform)
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    subprocess.run([
+        "hyprctl", "keyword",
+        "device[goodix-capacitive-touchscreen-1]:output", "DSI-1"
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+def on_properties_changed(connection, sender_name, object_path, interface_name, signal_name, parameters, user_data):
+    if parameters and len(parameters) >= 2:
+        changed_props = parameters[1]
+        if "AccelerometerOrientation" in changed_props:
+            orientation = changed_props["AccelerometerOrientation"]
+            if orientation in ORIENTATION_TO_TRANSFORM:
+                apply_transform(ORIENTATION_TO_TRANSFORM[orientation])
+
+def main():
+    try:
+        bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
+    except Exception as e:
+        sys.stderr.write(f"Failed to connect to system D-Bus: {e}\n")
+        sys.exit(1)
+
+    # Claim accelerometer from iio-sensor-proxy
+    try:
+        bus.call_sync(
+            "net.hadess.SensorProxy",
+            "/net/hadess/SensorProxy",
+            "net.hadess.SensorProxy",
+            "ClaimAccelerometer",
+            None,
+            None,
+            Gio.DBusCallFlags.NONE,
+            -1,
+            None
+        )
+    except Exception as e:
+        sys.stderr.write(f"Notice: Failed to claim accelerometer (is iio-sensor-proxy running?): {e}\n")
+
+    # Read current orientation
+    try:
+        val = bus.call_sync(
+            "net.hadess.SensorProxy",
+            "/net/hadess/SensorProxy",
+            "org.freedesktop.DBus.Properties",
+            "Get",
+            GLib.Variant("(ss)", ("net.hadess.SensorProxy", "AccelerometerOrientation")),
+            GLib.VariantType("(v)"),
+            Gio.DBusCallFlags.NONE,
+            -1,
+            None
+        )
+        if val:
+            orientation = val[0]
+            if orientation in ORIENTATION_TO_TRANSFORM:
+                apply_transform(ORIENTATION_TO_TRANSFORM[orientation])
+            else:
+                apply_transform(3)
+        else:
+            apply_transform(3)
+    except Exception:
+        apply_transform(3)
+
+    # Subscribe to property change signals
+    bus.signal_subscribe(
+        "net.hadess.SensorProxy",
+        "org.freedesktop.DBus.Properties",
+        "PropertiesChanged",
+        "/net/hadess/SensorProxy",
+        None,
+        Gio.DBusSignalFlags.NONE,
+        on_properties_changed,
+        None
+    )
+
+    loop = GLib.MainLoop()
+    try:
+        loop.run()
+    except KeyboardInterrupt:
+        pass
+
+if __name__ == "__main__":
+    main()
