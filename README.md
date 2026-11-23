@@ -43,34 +43,22 @@ Out of the box on Linux / Arch / Omarchy, the Chuwi MiniBook X (N100) encounters
   - **Standing Tablet**: Portrait mode
   - **Tent Mode**: Inverted landscape
   - **Inverted Tablet**: Inverted portrait
-- **(Optional) SDDM & Boot Console Tweaks**: Fixes orientation on the SDDM Wayland greeter and adds the kernel console framebuffer rotation quirk (`video=DSI-1:panel_orientation=right_side_up fbcon=rotate:1`).
+- **Boot and console orientation**: Adds MiniBook-specific Limine settings and rebuilds the boot image.
+- **SDDM login screen**: Applies the landscape rotation and touchscreen mapping to the Omarchy Wayland greeter.
 
 ---
 
 ## 🚀 Quick Install
 
-Open a terminal on your Chuwi MiniBook X running Omarchy or Hyprland:
+From the project directory in your Omarchy desktop on the MiniBook X, run:
 
 ```bash
-git clone https://github.com/Dessection/omarchy-chuwi-minibook-x.git
-cd omarchy-chuwi-minibook-x
 ./install.sh
 ```
 
-### Optional: Apply SDDM and Bootloader Console Fixes
-
-To include the SDDM login screen and Limine boot console rotation quirks, run:
-
-```bash
-./install.sh --with-root
-```
-
-### What the installer does:
-1. Verifies hardware compatibility via DMI table.
-2. Installs required packages (`iio-sensor-proxy`, `python-gobject`) if not already present.
-3. Installs and enables the `chuwi-rotate.service` user systemd service.
-4. Non-destructively adds display and touch device configurations to `~/.config/hypr/`.
-5. Immediately applies landscape rotation to your active Hyprland session without requiring a reboot.
+The same command updates an existing installation. Reboot to check the login
+screen after installation. See [START-HERE.md](START-HERE.md) for details and
+uninstall instructions.
 
 ---
 
@@ -115,7 +103,8 @@ omarchy-chuwi-minibook-x/
 │   ├── sddm/
 │   │   └── hyprland.lua              # SDDM Wayland greeter orientation fix
 │   └── limine/
-│       └── chuwi-minibook-x.conf     # Kernel cmdline rotation parameter for Limine
+│       ├── 99-minibook-console.conf # Framebuffer console rotation
+│       └── 99-minibook-panel.conf   # DRM panel orientation
 ├── install.sh                        # Automated setup script
 ├── uninstall.sh                      # Clean uninstaller
 ├── LICENSE                           # MIT License
@@ -126,7 +115,7 @@ omarchy-chuwi-minibook-x/
 
 ## 🗑️ Uninstallation
 
-To disable the auto-rotation daemon and remove user services:
+To remove the desktop, login screen, and boot rotation settings, run:
 
 ```bash
 ./uninstall.sh
